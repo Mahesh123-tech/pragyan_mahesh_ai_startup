@@ -1,190 +1,216 @@
-# --- PAGE CONFIGURATION ---
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import numpy as np
+
+# --- PAGE SETUP & UI THEMING ---
 st.set_page_config(
-    page_title="Startup Success Analytics",
+    page_title="VenturePulse | Startup Deep Analytics",
     page_icon="🚀",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- CUSTOM STYLE (Glassmorphism / Tech Aesthetic) ---
+# Custom premium styling via CSS
 st.markdown("""
     <style>
-    .main { background-color: #f8f9fa; }
-    .metric-card {
-        background-color: white;
-        padding: 20px;
-        border-radius: 10px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        margin-bottom: 10px;
+    html, body, [data-testid="stAppViewContainer"] {
+        background-color: #0d1117;
+        color: #c9d1d9;
+    }
+    [data-testid="stSidebar"] {
+        background-color: #161b22;
+        border-right: 1px solid #30363d;
+    }
+    div[data-testid="metric-container"] {
+        background: rgba(22, 27, 34, 0.7);
+        border: 1px solid #30363d;
+        padding: 15px;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        background-color: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 6px 6px 0px 0px;
+        color: #8b949e;
+        padding: 10px 20px;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #1f6feb !important;
+        color: #ffffff !important;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# --- DATA LOADING ---
+# --- DATA ACQUISITION & PREPROCESSING ---
 @st.cache_data
-def load_data():
-    # Load dataset (assumes the CSV is in the same directory)
-    df = pd.read_csv("startup_success_dataset (1).csv")
+def load_and_process_data():
+    # Referencing the exact user-specified file name
+    df = pd.read_csv("startup_success_dataset (1)_2.csv")
     
-    # Simple data cleaning/formatting
-    if 'outcome' in df.columns:
-        df['Is_Successful'] = df['outcome'].isin(['IPO', 'Acquisition']).astype(int)
+    # Calculate auxiliary metrics for deep analytics
+    df['is_success'] = df['outcome'].isin(['IPO', 'Acquisition']).astype(int)
+    
+    # Check revenue metric format (handling scaled numbers if necessary)
+    if df['revenue_million'].max() > 10000:
+        df['revenue_clean_million'] = df['revenue_million'] / 1_000_000
+    else:
+        df['revenue_clean_million'] = df['revenue_million']
+        
+    df['runway_months'] = np.where(
+        df['burn_rate_million'] > 0, 
+        (df['revenue_clean_million'] / df['burn_rate_million']) * 12, 
+        48 # Cap/default proxy if burn is 0
+    )
     return df
 
 try:
-    df = load_data()
-except Exception as e:
-    st.error(f"Error loading dataset: {e}")
-    st.info("Please ensure 'startup_success_dataset (1).csv' is in the same folder as this script.")
+    df = load_and_process_data()
+except FileNotFoundError:
+    st.error("⚠️ Global Dataset File Missing")
+    st.info("Ensure **startup_success_dataset (1)_2.csv** is positioned in the application root execution directory.")
     st.stop()
 
-# --- SIDEBAR FILTERS ---
-st.sidebar.title("🚀 Navigation & Filters")
-st.sidebar.markdown("Filter the dataset to customize the deep analytics view.")
+# --- SIDEBAR INTERFACE (CONTROL PANEL) ---
+st.sidebar.image("https://img.icons8.com/external-flat-juicy-fish/100/external-startup-agile-development-flat-juicy-fish.png", width=70)
+st.sidebar.title("VenturePulse Engine")
+st.sidebar.markdown("Filter ecosystem cohorts dynamically.")
 
-# Sector Filter
-all_sectors = sorted(df['sector'].unique()) if 'sector' in df.columns else []
-selected_sectors = st.sidebar.multiselect("Select Sectors", all_sectors, default=all_sectors)
+st.sidebar.write("---")
+selected_sectors = st.sidebar.multiselect(
+    "💡 Industry Verticals", 
+    options=sorted(df['sector'].unique()), 
+    default=sorted(df['sector'].unique())
+)
 
-# Founder Background Filter
-all_bg = sorted(df['founder_background'].unique()) if 'founder_background' in df.columns else []
-selected_bg = st.sidebar.multiselect("Founder Background", all_bg, default=all_bg)
+selected_bg = st.sidebar.multiselect(
+    "🧬 Founder Origin Profile", 
+    options=sorted(df['founder_background'].unique()), 
+    default=sorted(df['founder_background'].unique())
+)
 
-# Filter Data
-filtered_df = df[df['sector'].isin(selected_sectors) & df['founder_background'].isin(selected_bg)]
+min_exp, max_exp = int(df['founder_experience_years'].min()), int(df['founder_experience_years'].max())
+selected_exp = st.sidebar.slider("⏳ Minimum Founder Domain Experience (Years)", min_exp, max_exp, (min_exp, max_exp))
 
-# --- MAIN APP INTERFACE ---
-st.title("📊 Startup Success Deep-Analytics Dashboard")
-st.markdown("Gain data-driven insights into startup outcomes, burn rates, and growth trajectories.")
+# Execution Filter Matrix
+mask = (
+    df['sector'].isin(selected_sectors) & 
+    df['founder_background'].isin(selected_bg) &
+    df['founder_experience_years'].between(selected_exp[0], selected_exp[1])
+)
+filtered_df = df[mask]
+
+# --- APP BRAND HEADER ---
+st.title("🚀 Startup Venture Deep Analytics Console")
+st.markdown("Macro-ecosystem pattern validation, structural run-rate analysis, and milestone correlations.")
 st.write("---")
 
-# --- SECTION 1: HIGH-LEVEL KPIs ---
-st.subheader("📌 Key Performance Indicators")
+# --- CONTROL GUARD ---
+if filtered_df.empty:
+    st.warning("No data matching selection parameters. Broaden sidebar target groups.")
+    st.stop()
+
+# --- SECTION 1: EXECUTION METRICS ---
 col1, col2, col3, col4 = st.columns(4)
-
 with col1:
-    total_startups = len(filtered_df)
-    st.metric(label="Total Startups Analyzed", value=f"{total_startups:,}")
-
+    st.metric(label="Cohort Size (N)", value=f"{len(filtered_df):,}")
 with col2:
-    if 'outcome' in filtered_df.columns:
-        success_rate = (filtered_df['Is_Successful'].mean() * 100)
-        st.metric(label="Success Rate (IPO/Acquisition)", value=f"{success_rate:.1f}%")
-    else:
-        st.metric(label="Success Rate", value="N/A")
-
+    succ_rate = filtered_df['is_success'].mean() * 100
+    st.metric(label="Success Exit Delta (IPO/Acq)", value=f"{succ_rate:.1f}%")
 with col3:
-    if 'revenue_million' in filtered_df.columns:
-        avg_rev = filtered_df['revenue_million'].mean()
-        st.metric(label="Avg Revenue", value=f"${avg_rev:.2f}M")
-    else:
-        st.metric(label="Avg Revenue", value="N/A")
-
+    avg_rev = filtered_df['revenue_clean_million'].mean()
+    st.metric(label="Mean Annualized Revenue", value=f"${avg_rev:.2f}M")
 with col4:
-    if 'burn_rate_million' in filtered_df.columns:
-        avg_burn = filtered_df['burn_rate_million'].mean()
-        st.metric(label="Avg Burn Rate", value=f"${avg_burn:.2f}M/yr")
-    else:
-        st.metric(label="Avg Burn Rate", value="N/A")
+    avg_burn = filtered_df['burn_rate_million'].mean()
+    st.metric(label="Mean Run-Rate Burn", value=f"${avg_burn:.2f}M/yr")
 
 st.write("---")
 
-# --- SECTION 2: DEEP ANALYTICS & CHARTS ---
-st.subheader("📈 Core Analysis & Ecosystem Insights")
+# --- SECTION 2: DEEP ANALYTICS ARTIFACTS ---
+tab_macro, tab_financial, tab_team = st.tabs([
+    "📈 Macro Market Dynamics", 
+    "💸 Runway & Yield Efficiency", 
+    "🧠 Human Capital Index"
+])
 
-tab1, tab2, tab3 = st.tabs(["🎯 Outcome Breakdown", "💸 Financial Health & Runway", "🧠 Founder & Team Dynamics"])
-
-with tab1:
-    c1, c2 = st.columns(2)
+# TAB 1: MACRO MARKET DYNAMICS
+with tab_macro:
+    c1, c2 = st.columns([2, 3])
     with c1:
-        st.markdown("#### Distribution of Startup Outcomes")
-        fig_outcome = px.pie(
-            filtered_df, 
-            names='outcome', 
-            hole=0.4,
-            color_discrete_sequence=px.colors.qualitative.Pastel
+        st.markdown("#### Outcome Cohort Allocation")
+        fig_pie = px.pie(
+            filtered_df, names='outcome', hole=0.5,
+            color_discrete_sequence=px.colors.qualitative.G10
         )
-        fig_outcome.update_layout(margin=dict(t=20, b=20, l=20, r=20))
-        st.plotly_chart(fig_outcome, use_container_width=True)
+        fig_pie.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+        st.plotly_chart(fig_pie, use_container_width=True)
         
     with c2:
-        st.markdown("#### Success Rate by Sector")
-        sector_success = filtered_df.groupby('sector')['Is_Successful'].mean().reset_index()
-        sector_success['Success Rate (%)'] = sector_success['Is_Successful'] * 100
-        sector_success = sector_success.sort_values(by='Success Rate (%)', ascending=False)
-        
-        fig_sector = px.bar(
-            sector_success, 
-            x='Success Rate (%)', 
-            y='sector', 
-            orientation='h',
-            color='Success Rate (%)',
-            color_continuous_scale='Viridis'
+        st.markdown("#### Exit Density Across Addressable Market (TAM)")
+        fig_box = px.box(
+            filtered_df, x='outcome', y='market_size_billion', color='outcome',
+            points="outliers", color_discrete_sequence=px.colors.qualitative.Safe
         )
-        st.plotly_chart(fig_sector, use_container_width=True)
+        fig_box.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+        st.plotly_chart(fig_box, use_container_width=True)
 
-with tab2:
-    st.markdown("#### Revenue vs. Burn Rate Matrix")
-    st.markdown("> **Insight:** Startups above the diagonal line are generating more revenue than their annual burn rate, translating into sustainable scaling paths.")
+# TAB 2: RUNWAY & YIELD EFFICIENCY
+with tab_financial:
+    st.markdown("#### Capital Consumption Matrix (Burn vs Revenue)")
+    st.caption("Bubble sizing represents total addressable market size (TAM in Billions). Diagnostic crosshairs help evaluate capital efficiency.")
     
     fig_scatter = px.scatter(
-        filtered_df,
-        x='burn_rate_million',
-        y='revenue_million',
-        color='outcome',
-        size='market_size_billion',
-        hover_data=['team_size', 'funding_rounds'],
-        labels={
-            'burn_rate_million': 'Burn Rate (Millions $)',
-            'revenue_million': 'Revenue (Millions $)'
-        },
-        color_discrete_map={'Failure': '#ef553b', 'IPO': '#636efa', 'Acquisition': '#00cc96'}
+        filtered_df, 
+        x='burn_rate_million', 
+        y='revenue_clean_million',
+        color='outcome', 
+        size='market_size_billion', 
+        hover_data=['funding_rounds', 'product_traction_users'],
+        color_discrete_map={'Failure': '#ff4b4b', 'IPO': '#00f2fe', 'Acquisition': '#4caf50'},
+        max_size=35
     )
+    fig_scatter.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
     st.plotly_chart(fig_scatter, use_container_width=True)
 
-with tab3:
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.markdown("#### How Investor Types Impact Success")
-        fig_inv = px.histogram(
-            filtered_df, 
-            x="investor_type", 
-            color="outcome", 
-            barmode="group",
-            color_discrete_sequence=px.colors.qualitative.Safe
+# TAB 3: HUMAN CAPITAL INDEX
+with tab_team:
+    c3, c4 = st.columns(2)
+    with c3:
+        st.markdown("#### Investor Type Deployment vs Outcomes")
+        fig_hist = px.histogram(
+            filtered_df, x='investor_type', color='outcome', barmode='group',
+            color_discrete_sequence=px.colors.palette.Tealgrn
         )
-        st.plotly_chart(fig_inv, use_container_width=True)
+        fig_hist.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+        st.plotly_chart(fig_hist, use_container_width=True)
         
-    with col_b:
-        st.markdown("#### Experience vs. Team Scaling Size")
-        fig_bubble = px.scatter(
-            filtered_df,
-            x='founder_experience_years',
-            y='team_size',
-            color='founder_background',
-            marginal_x="box",
-            labels={'founder_experience_years': 'Years of Experience', 'team_size': 'Team Size'}
+    with c4:
+        st.markdown("#### Scaled Team Growth vs Founder Background")
+        fig_strip = px.strip(
+            filtered_df, x='founder_background', y='team_size', color='outcome',
+            color_discrete_sequence=px.colors.qualitative.Bold
         )
-        st.plotly_chart(fig_bubble, use_container_width=True)
+        fig_strip.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+        st.plotly_chart(fig_strip, use_container_width=True)
 
-# --- SECTION 3: RAW DATA EXPLOIT ---
+# --- SECTION 3: DEEP INSIGHTS RECONCILIATION ---
 st.write("---")
-st.subheader("📋 Filtered Dataset Explorer")
-st.dataframe(filtered_df, use_container_width=True)
-#Initialize local git repository
-git init
+st.subheader("💡 Strategic Insight Ledger")
 
-# Add all files (app.py, requirements.txt, and your dataset CSV)
-git add .
+# Compute data-driven insights dynamically based on subset values
+top_performing_sector = filtered_df.groupby('sector')['is_success'].mean().idxmax()
+top_performing_rate = filtered_df.groupby('sector')['is_success'].mean().max() * 100
+capital_heavyweight_bg = filtered_df.groupby('founder_background')['burn_rate_million'].mean().idxmax()
 
-# Commit files locally
-git commit -m "Initial commit: Streamlit startup dashboard"
+st.info(f"**Dominant Growth Subsector:** Companies tracking within **{top_performing_sector}** yield the current peak exit efficiency profile of **{top_performing_rate:.1f}%** relative to alternatives inside this slice.")
+st.warning(f"**Capital Expenditure Profile:** Cohorts run by founders with a background in **{capital_heavyweight_bg}** express the peak mean burn-rate footprints inside the filtered subset.")
 
-# Rename your primary branch to main
-git branch -M main
-
-# Link to your newly created GitHub Repo (Replace with your actual repo link!)
-git remote add origin https://github.com/YOUR_GITHUB_USERNAME/startup-success-analytics.git
-
-# Push it live!
-git push -u origin main
+# --- SECTION 4: COHORT RAW LOOKUP ---
+st.write("---")
+with st.expander("👁️ Inspect Live Filtered Registry"):
+    st.dataframe(filtered_df, use_container_width=True)
